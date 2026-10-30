@@ -36,6 +36,11 @@ class ProbeError(Exception):
     pass
 
 
+PROTECTED_MSG = ("{name} is copy-protected (Apple FairPlay or similar DRM, which iTunes and Apple TV "
+                 "purchases use). ffmpeg can't read protected video, so Nous Reel can't play or "
+                 "convert it, and Plex can't play it either.")
+
+
 def probe(path):
     exe = find("ffprobe")
     if not exe:
@@ -75,6 +80,9 @@ class Stream:
         except ValueError:
             self.fps = 0.0
         self.field_order = d.get("field_order", "")
+        # Apple FairPlay (iTunes purchases) and other encrypted tracks: ffmpeg can't decode them
+        self.protected = (d.get("codec_tag_string", "") in ("drmi", "drms", "drmp", "drac", "encv", "enca")
+                          or self.codec == "none")
 
     @property
     def is_text_sub(self):
@@ -124,6 +132,10 @@ class MediaInfo:
         self.bitrate = _int(fmt.get("bit_rate")) or (int(self.size * 8 / self.duration) if self.duration else 0)
         self.streams = [Stream(s) for s in data.get("streams") or []]
         self.chapters = data.get("chapters") or []
+
+    @property
+    def protected(self):
+        return any(s.protected for s in self.streams if s.kind in ("video", "audio"))
 
     def of(self, kind):
         return [s for s in self.streams if s.kind == kind and not (kind == "video" and s.attached_pic)]

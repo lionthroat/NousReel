@@ -55,9 +55,12 @@ def check(label, ok):
 steps = []
 
 
-def step(delay):
+def step(delay, until=None):
+    """Run after `delay` ms (counted from the previous step), and if `until` is
+    given, not before it returns true (up to a minute). Chained, so a slow step
+    under load just pushes the rest back instead of letting them overlap."""
     def deco(fn):
-        steps.append((delay, fn))
+        steps.append((delay, until, fn))
         return fn
     return deco
 
@@ -67,7 +70,7 @@ def open_file():
     w.open_path(video)
 
 
-@step(2500)
+@step(300, until=lambda: w.duration > 0 and w.info is not None)
 def loaded():
     check("duration known", w.duration > 0)
     check("probe ran", w.info is not None)
@@ -126,7 +129,7 @@ def shrink_shot():
     w._d.estimate()
 
 
-@step(25000)
+@step(500, until=lambda: "Roughly" in w._d.est_lbl.text() or "Couldn't" in w._d.est_lbl.text())
 def estimated():
     check("size estimate finished: " + w._d.est_lbl.text(), "Roughly" in w._d.est_lbl.text())
     shot("04_shrink_estimate", w._d)
@@ -153,7 +156,7 @@ def remux():
     w._remux_out = out
 
 
-@step(6000)
+@step(500, until=lambda: w.queue.jobs and w.queue.jobs[-1].state in ("done", "failed"))
 def remux_done():
     j = w.queue.jobs[-1]
     check(f"remux job finished ({j.state} {j.error[:200]})", j.state == "done" and os.path.exists(w._remux_out))
@@ -172,6 +175,31 @@ if len(sys.argv) > 2:
         shot("07_join", w._d)
         check("join found the other part(s): " + w._d.status.text()[:80], len(w._d.infos) >= 2)
         w._d.reject()
+
+
+@step(300)
+def play_for_fade():
+    w.jobs_dock.hide()
+    w.player.set("pause", False)
+    QApplication.activeWindow() and None
+
+
+@step(4000)
+def faded():
+    check(f"controls faded while playing untouched (opacity {w.fade.opacity():.2f})", w.fade.opacity() < 0.05)
+    shot("09_faded")
+    w.poke()
+
+
+@step(500)
+def back():
+    check(f"controls back after interaction (opacity {w.fade.opacity():.2f})", w.fade.opacity() > 0.95)
+    w.player.set("pause", True)
+
+
+@step(4000)
+def stays_when_paused():
+    check(f"controls stay while paused (opacity {w.fade.opacity():.2f})", w.fade.opacity() > 0.95)
 
 
 @step(300)
@@ -205,8 +233,20 @@ def finish():
     app.exit(1 if bad else 0)
 
 
-t = 0
-for delay, fn in steps:
-    t += delay
-    QTimer.singleShot(t, fn)
+def run_step(i, waited=0):
+    if i >= len(steps):
+        return
+    delay, until, fn = steps[i]
+    if until and not until() and waited < 60_000:
+        QTimer.singleShot(250, lambda: run_step(i, waited + 250))
+        return
+    try:
+        fn()
+    except Exception as e:  # keep going so one failure doesn't hide the rest
+        check(f"{fn.__name__} raised {e!r}", False)
+    nxt = steps[i + 1][0] if i + 1 < len(steps) else 0
+    QTimer.singleShot(nxt, lambda: run_step(i + 1))
+
+
+QTimer.singleShot(steps[0][0], lambda: run_step(0))
 sys.exit(app.exec())

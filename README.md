@@ -14,6 +14,20 @@ what's going on.
 Resumes where you left off. Choose subtitle and sound tracks from the bar, or
 drop an `.srt` onto the window.
 
+The controls fade out after a few seconds of playing and come back when you
+move the mouse, scroll, or press a key. They stay up while paused.
+
+**720p for Plex from the right-click menu.** Turn it on under *Tools ▸ “720p
+for Plex” in the right-click menu*, then right-click any video in File
+Explorer and choose **720p for Plex (Nous Reel)**. A small window shows
+progress and you can carry on with your day. Select several videos to queue
+them all. The new file is saved next to the original as `… - 720p.mkv`, which
+Plex treats as another version of the same title. Files that are already
+small are skipped, and copy-protected files (iTunes / Apple TV purchases) are
+explained rather than attempted. On Windows 11 the entry is under *Show more
+options*, or hold **Shift** while right-clicking to go straight to it. It's
+added for your user account only and is removed when you untick it.
+
 **Step through frames.** `,` and `.` move one frame back or forward. The time
 display shows the exact frame number.
 
@@ -80,6 +94,7 @@ from `NOUSREEL_MPV` / `NOUSREEL_FFMPEG` / `NOUSREEL_FFPROBE`.
 
 ```
 .venv\Scripts\python.exe tests\test_ffcmd.py
+.venv\Scripts\python.exe tests\test_quick.py
 .venv\Scripts\python.exe tests\smoke_gui.py "<a video>" ["join"]
 .venv\Scripts\python.exe tests\full_runs.py join "<part 1>" "<part 2>"
 ```
@@ -99,3 +114,5 @@ settings profile and writes nothing next to the video or into Pictures.
 | `reel_jobs.py` | Job queue with progress, and the Jobs panel |
 | `reel_dialogs.py` | What's inside, Tracks & subtitles, Shrink, Join |
 | `reel_meme.py` | Meme maker and the ruin filters |
+| `reel_quick.py` | One-step 720p for Plex window and its single queue |
+| `reel_shell.py` | The Explorer right-click entry (per user) |

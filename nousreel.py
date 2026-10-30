@@ -5,16 +5,16 @@ import os
 import sys
 import tempfile
 
-from PySide6.QtCore import QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QEvent, QPropertyAnimation, QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import (QAction, QColor, QIcon, QImage, QKeySequence, QPainter, QPalette, QPen,
                            QPixmap, QShortcut)
-from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
                                QMainWindow, QMenu, QMessageBox, QSlider, QStyle, QToolButton,
                                QVBoxLayout, QWidget)
 
 from reel_dialogs import InfoDialog, JoinDialog, RemuxDialog, ShrinkDialog
 from reel_jobs import JobQueue, JobsPanel
-from reel_media import ProbeError, fmt_time, plex_name, probe
+from reel_media import PROTECTED_MSG, ProbeError, fmt_time, plex_name, probe
 from reel_meme import MemeDialog
 from reel_player import MpvWidget
 from reel_tools_path import find
@@ -172,7 +172,17 @@ class MainWindow(QMainWindow):
         self.player.file_loaded.connect(self.on_loaded)
 
         self.controls = self._build_controls()
+        self.controls.setAttribute(Qt.WA_StyledBackground, True)
+        # Idle fade: the bar keeps its space (so the picture never jumps) and
+        # fades to the black behind it
+        self.fade = QGraphicsOpacityEffect(self.controls)
+        self.fade.setOpacity(1.0)
+        self.controls.setGraphicsEffect(self.fade)
+        self.fade_anim = QPropertyAnimation(self.fade, b"opacity", self)
+        self.idle_timer = QTimer(self, singleShot=True, interval=2500, timeout=self._idle)
         central = QWidget()
+        central.setObjectName("central")
+        central.setAttribute(Qt.WA_StyledBackground, True)
         lay = QVBoxLayout(central)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
@@ -200,7 +210,44 @@ class MainWindow(QMainWindow):
         geo = settings().value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
+        QApplication.instance().installEventFilter(self)
         QTimer.singleShot(0, self.player.start)
+
+    # ---- idle fade -----------------------------------------------------------
+    def eventFilter(self, obj, e):
+        if e.type() in (QEvent.MouseMove, QEvent.HoverMove, QEvent.Wheel, QEvent.MouseButtonPress) \
+                and isinstance(obj, QWidget) and obj.window() is self:
+            self.poke()
+        return False
+
+    def poke(self):
+        """Any interaction: bring the controls back and restart the idle clock."""
+        if self.isFullScreen():
+            self._show_fs_controls()
+        self._fade_to(1.0, 120)
+        self.idle_timer.start()
+
+    def _idle(self):
+        if self.isFullScreen():
+            return
+        busy = (self.player.props.get("pause") is not False or not self.path or self.dragging
+                or self.controls.underMouse() or QApplication.activePopupWidget() is not None)
+        if busy:
+            # stays up while paused (frame stepping), with a menu open, or with the mouse on it
+            self.idle_timer.start()
+            return
+        self._fade_to(0.0, 450)
+
+    def _fade_to(self, value, ms):
+        if abs(self.fade.opacity() - value) < 1e-3 and self.fade_anim.state() != QPropertyAnimation.Running:
+            return
+        if self.fade_anim.endValue() == value and self.fade_anim.state() == QPropertyAnimation.Running:
+            return
+        self.fade_anim.stop()
+        self.fade_anim.setDuration(ms)
+        self.fade_anim.setStartValue(self.fade.opacity())
+        self.fade_anim.setEndValue(value)
+        self.fade_anim.start()
 
     # ---- layout ----------------------------------------------------------
     def _build_controls(self):
@@ -296,6 +343,13 @@ class MainWindow(QMainWindow):
         self._act(t, "Join parts…", self.tool_join)
         t.addSeparator()
         self._act(t, "Show jobs", lambda: self.jobs_dock.show())
+        if os.name == "nt":
+            import reel_shell
+            t.addSeparator()
+            rc = self._act(t, "“720p for Plex” in the right-click menu", self.toggle_shell_menu)
+            rc.setCheckable(True)
+            rc.setChecked(reel_shell.is_installed())
+            rc.setToolTip("Right-click any video in File Explorer to shrink it to 720p in one step")
         v = mb.addMenu("&View")
         self._act(v, "Full screen", lambda: self.do("fullscreen"))
         top = self._act(v, "Always on top", self.toggle_on_top)
@@ -337,8 +391,10 @@ class MainWindow(QMainWindow):
             self.info = probe(self.path)
         except ProbeError:
             self.info = None
+        if self.info and self.info.protected:
+            QMessageBox.warning(self, APP, PROTECTED_MSG.format(name=os.path.basename(self.path)))
         v = self.info.video if self.info else None
-        self.fps = v.fps if v and v.fps else (self.player.props.get("container-fps") or 24.0)
+        self.fps =v.fps if v and v.fps else (self.player.props.get("container-fps") or 24.0)
         pos = self._positions().get(self.path)
         if pos:
             self.player.seek(pos, "absolute")
@@ -405,6 +461,7 @@ class MainWindow(QMainWindow):
             self._update_time(value)
         elif name == "pause":
             self.play_btn.setIcon(glyph("play" if value else "pause"))
+            self.poke()
         elif name == "track-list":
             self._rebuild_track_menus()
         elif name in ("sid", "aid", "sub-visibility"):
@@ -473,9 +530,8 @@ class MainWindow(QMainWindow):
 
     # ---- actions -----------------------------------------------------------
     def on_mpv_key(self, name):
+        self.poke()
         if name == "MOUSE_MOVE":
-            if self.isFullScreen():
-                self._show_fs_controls()
             return
         if name == "MBTN_LEFT_DBL":
             return self.do("fullscreen")
@@ -488,6 +544,7 @@ class MainWindow(QMainWindow):
                 return self.do(action)
 
     def do(self, action):
+        self.poke()
         p = self.player
         seeks = {"back5": -5, "fwd5": 5, "back1": -1, "fwd1": 1, "back10": -10, "fwd10": 10}
         if action == "play":
@@ -611,6 +668,9 @@ class MainWindow(QMainWindow):
             except ProbeError as e:
                 QMessageBox.warning(self, APP, str(e))
                 return None
+        if self.info.protected:
+            QMessageBox.warning(self, APP, PROTECTED_MSG.format(name=os.path.basename(self.path)))
+            return None
         return self.info
 
     def tool_info(self):
@@ -630,6 +690,19 @@ class MainWindow(QMainWindow):
 
     def tool_join(self):
         JoinDialog(self.path, self.queue, self).exec()
+
+    def toggle_shell_menu(self, on):
+        import reel_shell
+        if on:
+            reel_shell.install()
+            QMessageBox.information(
+                self, APP,
+                "Added. Right-click a video in File Explorer and choose “720p for Plex (Nous Reel)”.\n\n"
+                "On Windows 11 it's under “Show more options”, or hold Shift while you right-click "
+                "to go straight to it. Select several videos to queue them all.")
+        else:
+            reel_shell.uninstall()
+            self.statusBar().showMessage("Removed “720p for Plex” from the right-click menu.", 6000)
 
     def _job_finished(self, job, ok):
         if ok:
@@ -712,6 +785,7 @@ def apply_theme(app):
     app.setPalette(p)
     app.setStyleSheet("QDockWidget::title{background:#3b4252;padding:4px 6px}"
                       "#controls{background:#2e3440}"
+                      "#central{background:#000000}"
                       "QToolButton{border-radius:4px;padding:2px 6px}"
                       "QToolButton:hover{background:#434c5e}"
                       "QToolButton#meme{background:#bf616a;color:white;font-weight:bold}"
@@ -724,6 +798,10 @@ def main():
     app.setApplicationName(APP)
     app.setOrganizationName("NousReel")
     apply_theme(app)
+    if "--plex720" in sys.argv:
+        import reel_quick
+        files = [a for a in sys.argv[1:] if a != "--plex720"]
+        return reel_quick.run(files, app_icon())
     w = MainWindow()
     w.show()
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
