@@ -14,7 +14,7 @@ PY=.venv/bin/python
 VERSION=$(tr -d '[:space:]' < VERSION)
 PKG=nous-reel
 
-"$PY" make_icon.py
+QT_QPA_PLATFORM=offscreen "$PY" make_icon.py
 
 # No --strip: it breaks libraries that pip wheels ship pre-patched (numpy's
 # OpenBLAS). libpython is stripped by hand below. QtNetwork stays: the player
