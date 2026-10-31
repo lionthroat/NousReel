@@ -79,7 +79,25 @@ never leaves a half-file behind.
 | [ ] Backspace | Slower / faster / normal speed |
 | I | What's inside this file |
 
-## Running it
+## Download
+
+**https://nousreel.lionthroat.com** has the Windows installer (mpv and ffmpeg
+included) and the Linux .deb (Mint 21+, Ubuntu 22.04+, Debian 12+; it pulls in
+mpv and ffmpeg from apt), with step-by-step instructions. A Mac version needs a
+different playback engine (macOS doesn't let mpv draw into another program's
+window) and is planned.
+
+## Building
+
+- Windows: `powershell -ExecutionPolicy Bypass -File build.ps1` makes
+  `dist\NousReel` (and the installer if Inno Setup 6 is installed).
+- Linux: `bash build_linux.sh` makes the .deb.
+- GitHub builds both, tests them, installs and uninstalls them, and publishes
+  a release when a `v*` tag is pushed (`.github/workflows/build.yml`).
+- `make_showcase.py "<His Girl Friday>"` remakes the website screenshots;
+  `cd site && npx wrangler@4 deploy` publishes the site.
+
+## Running it from source
 
 Needs Python 3.12+, plus mpv and ffmpeg:
 

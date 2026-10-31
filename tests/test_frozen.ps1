@@ -10,6 +10,8 @@ $exe = Join-Path (Resolve-Path $App) "NousReel.exe"
 $out = Join-Path $PSScriptRoot "out\frozen"
 New-Item -ItemType Directory -Force $out | Out-Null
 $env:NOUSREEL_SETTINGS = "NousReelTest"
+# the app must use its own bin copies, not whatever a dev or CI pointed it at
+foreach ($v in "NOUSREEL_MPV", "NOUSREEL_FFMPEG", "NOUSREEL_FFPROBE") { Remove-Item "Env:$v" -ErrorAction SilentlyContinue }
 function Fail($m) { throw "FAIL: $m" }
 
 # 1. opens a video and plays it with the bundled mpv
