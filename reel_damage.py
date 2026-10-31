@@ -37,6 +37,15 @@ def classify(line):
     return "file"
 
 
+def is_output_noise(line):
+    """Complaints from the throwaway output side (the 'null' muxer the check
+    decodes into) say nothing about the file; older ffmpeg (4.x) makes these
+    on perfectly good files."""
+    m = _TAG.match(line)
+    who = m.group("who") if m else ""
+    return who == "null" or who.startswith("out#") or "to muxer" in line
+
+
 def group_spots(events):
     """[(seconds, kind, line)] -> [{start, end, kinds, count, sample}] in time order."""
     spots = []
@@ -115,6 +124,8 @@ class DamageCheck(QObject):
             if b"[error]" not in raw and b"[fatal]" not in raw:
                 continue
             line = raw.decode("utf-8", "replace").replace("[error] ", "").replace("[fatal] ", "").strip()
+            if is_output_noise(line):
+                continue
             self.events.append((max(0.0, self.pkt_t), classify(line), line))
 
     def _done(self, code, _status):

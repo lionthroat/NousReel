@@ -33,6 +33,9 @@ def check(label, ok):
 check("h264 line is picture", D.classify("[h264 @ 0000020a] error while decoding MB 4 5") == "picture")
 check("ac3 line is sound", D.classify("[ac3 @ 0x55] frame sync error") == "sound")
 check("demuxer line is file", D.classify("[matroska,webm @ 0x1] Invalid EBML") == "file")
+check("output-side complaints aren't damage", D.is_output_noise(
+    "[null @ 0x55623f503e80] Application provided invalid, non monotonically increasing dts to muxer in stream 0: 2 >= 2")
+      and not D.is_output_noise("[h264 @ 0x1] error while decoding MB 4 5"))
 spots = D.group_spots([(10.0, "picture", "a"), (11.5, "picture", "b"), (30.0, "sound", "c")])
 check("errors 1.5 s apart merge, 18 s apart don't", len(spots) == 2 and spots[0]["count"] == 2)
 
