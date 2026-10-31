@@ -74,13 +74,8 @@ def shot(name, widget=None):
         # dialogs render on their own, so nothing else on screen can end up in the picture
         widget.grab().save(os.path.join(OUT, name + ".png"))
         return
-    # mpv draws the video outside Qt, so the main window needs a screen grab; bring it to the front first
-    w.raise_()
-    w.activateWindow()
-    QApplication.processEvents()
-    scr = widget.screen()
-    g = widget.frameGeometry()
-    scr.grabWindow(0, g.x(), g.y(), g.width(), g.height()).save(os.path.join(OUT, name + ".png"))
+    # never a screen grab (it can catch other windows): Qt draws the window, mpv supplies the video
+    nousreel.window_picture(w, os.path.join(OUT, name + ".png"), lambda ok: None)
 
 
 def check(label, ok):

@@ -740,6 +740,27 @@ class MainWindow(QMainWindow):
         super().closeEvent(e)
 
 
+def window_picture(w, out_path, done):
+    """A picture of the main window with its video, without grabbing the screen
+    (a screen grab can catch whatever else is on top). Qt draws the window, mpv
+    supplies what its video area shows, subtitles included. Calls done(ok)."""
+    tmp = os.path.join(tempfile.gettempdir(), f"nousreel-window-{os.getpid()}.png")
+
+    def got(err, _data):
+        pm = w.grab()
+        if err == "success" and os.path.exists(tmp):
+            video = QImage(tmp)
+            qp = QPainter(pm)
+            qp.setRenderHint(QPainter.SmoothPixmapTransform)
+            r = w.player.rect()
+            r.moveTopLeft(w.player.mapTo(w, r.topLeft()))
+            qp.drawImage(r, video)
+            qp.end()
+            os.remove(tmp)
+        done(pm.save(out_path) and err == "success")
+    w.player.command("screenshot-to-file", tmp, "window", callback=got)
+
+
 def _track_label(t):
     from reel_media import LANG_NAMES
     bits = []

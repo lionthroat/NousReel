@@ -38,9 +38,14 @@ check("errors 1.5 s apart merge, 18 s apart don't", len(spots) == 2 and spots[0]
 
 src = sys.argv[1]
 clean = os.path.join(OUT, "clean.mkv")
-subprocess.run([find("ffmpeg"), "-nostdin", "-v", "error", "-y", "-ss", "600", "-t", "60", "-i", src,
-                "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", clean], check=True, stdin=subprocess.DEVNULL)
+# up to a minute from 10 minutes in, or most of a short sample (CI's is 20 s)
+src_len = probe(src).duration
+start, length = min(600.0, src_len * 0.1), min(60.0, src_len * 0.8)
+subprocess.run([find("ffmpeg"), "-nostdin", "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{length:.2f}",
+                "-i", src, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", clean], check=True,
+               stdin=subprocess.DEVNULL)
 size = os.path.getsize(clean)
+clip_len = probe(clean).duration
 
 scratched = os.path.join(OUT, "scratched.mkv")
 shutil.copy(clean, scratched)
@@ -71,8 +76,11 @@ check(f"clean copy: no spots, not cut off ({D.summary(r)[:40]}…)", not r["spot
 r = run(scratched)
 starts = [round(s["start"]) for s in r["spots"]]
 check(f"scratched copy: trouble spots found at {starts}s ({r['errors']} errors)", len(r["spots"]) >= 2)
-check("spots are near the scrambled places (~21 s and ~42 s)",
-      any(15 <= t <= 28 for t in starts) and any(36 <= t <= 50 for t in starts))
+# bytes 35% and 70% into the file land roughly 35% and 70% into the clip
+near = [clip_len * 0.35, clip_len * 0.7]
+slack = max(3.0, clip_len * 0.2)
+check(f"spots are near the scrambled places (~{near[0]:.0f} s and ~{near[1]:.0f} s)",
+      all(any(abs(t - n) <= slack for t in starts) for n in near))
 r = run(cut)
 check(f"cut-off copy flagged: reached {r['reached']:.0f}s of {r['duration']:.0f}s", r["ends_early"])
 
