@@ -5,7 +5,8 @@ import os
 import sys
 import tempfile
 
-from PySide6.QtCore import QEvent, QPropertyAnimation, QRectF, QSettings, QSize, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import (QEvent, QPropertyAnimation, QRectF, QSettings, QSize, QStandardPaths, Qt, QThread,
+                            QTimer, Signal)
 from PySide6.QtGui import (QAction, QColor, QIcon, QImage, QKeySequence, QPainter, QPalette, QPen,
                            QPixmap, QShortcut)
 from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QGraphicsOpacityEffect, QHBoxLayout, QLabel,
@@ -17,6 +18,7 @@ from reel_jobs import JobQueue, JobsPanel
 from reel_media import PROTECTED_MSG, ProbeError, fmt_time, plex_name, probe
 from reel_meme import MemeDialog
 from reel_player import MpvWidget
+from reel_view import MODES as VIEW_MODES, SHAPES as VIEW_SHAPES, ZOOM_LIMIT as VIEW_ZOOM_LIMIT,     ZOOM_STEP as VIEW_ZOOM_STEP, View, detect_bars
 from reel_tools_path import find
 
 APP = "Nous Reel"
@@ -37,6 +39,8 @@ KEYS = [
     ("cycle_sub", "S", "s"), ("cycle_audio", "A", "a"), ("toggle_sub", "V", "v"),
     ("slower", "[", "["), ("faster", "]", "]"), ("speed_reset", "Backspace", "BS"),
     ("start", "Home", "HOME"), ("info", "I", "i"),
+    ("view_cycle", "W", "w"), ("zoom_in", "+", "+"), ("zoom_in", "=", "="), ("zoom_out", "-", "-"),
+    ("view_reset", "0", "0"), ("rotate", "R", "r"), ("bars", "B", "b"),
 ]
 HELP = [
     ("Space or K", "Play / pause"), (", and .", "Step one frame back / forward (pauses)"),
@@ -46,6 +50,8 @@ HELP = [
     ("S / A", "Next subtitle / sound track"), ("V", "Subtitles on / off"),
     ("[ and ]", "Slower / faster (Backspace resets)"), ("Home", "Back to the start"),
     ("I", "What's inside this file"),
+    ("W", "Picture: Fit / Fill / Stretch"), ("+ and −", "Zoom in / out"), ("0", "Back to the normal view"),
+    ("B", "Remove black bars baked into the picture"), ("R", "Rotate 90°"),
 ]
 
 
@@ -185,7 +191,10 @@ class MainWindow(QMainWindow):
         self.queue.added.connect(lambda j: self.jobs_dock.show())
         self.queue.added.connect(lambda j: j.finished.connect(lambda ok, j=j: self._job_finished(j, ok)))
 
+        self.view = View()
         self._build_menus()
+        self.view_btn.setText(self.view.label() + " ")
+        self._rebuild_view_menu()
         for action, seq, _ in KEYS:
             sc = QShortcut(QKeySequence(seq), self)
             sc.activated.connect(lambda a=action: self.do(a))
@@ -289,6 +298,13 @@ class MainWindow(QMainWindow):
         self.audio_menu = QMenu(self.audio_btn)
         self.audio_btn.setMenu(self.audio_menu)
         row.addWidget(self.audio_btn)
+        self.view_btn = QToolButton()
+        self.view_btn.setToolTip("How the picture fits the window: Fit, Fill, Stretch, zoom, shape (W)")
+        self.view_btn.setPopupMode(QToolButton.InstantPopup)
+        self.view_btn.setFocusPolicy(Qt.NoFocus)
+        self.view_menu = QMenu("Picture", self.view_btn)
+        self.view_btn.setMenu(self.view_menu)
+        row.addWidget(self.view_btn)
         self.mute_btn = btn("vol", "Mute", lambda: self.player.command("cycle", "mute"))
         self.vol = QSlider(Qt.Horizontal)
         self.vol.setRange(0, 130)
@@ -338,6 +354,8 @@ class MainWindow(QMainWindow):
             rc.setChecked(reel_shell.is_installed())
             rc.setToolTip("Right-click any video in File Explorer to shrink it to 720p in one step")
         v = mb.addMenu("&View")
+        v.addMenu(self.view_menu)
+        v.addSeparator()
         self._act(v, "Full screen", lambda: self.do("fullscreen"))
         top = self._act(v, "Always on top", self.toggle_on_top)
         top.setCheckable(True)
@@ -381,7 +399,9 @@ class MainWindow(QMainWindow):
         if self.info and self.info.protected:
             QMessageBox.warning(self, APP, PROTECTED_MSG.format(name=os.path.basename(self.path)))
         v = self.info.video if self.info else None
-        self.fps =v.fps if v and v.fps else (self.player.props.get("container-fps") or 24.0)
+        self.fps = v.fps if v and v.fps else (self.player.props.get("container-fps") or 24.0)
+        self.view = View(self._views().get(self.path))
+        self._view_changed(save=False)
         pos = self._positions().get(self.path)
         if pos:
             self.player.seek(pos, "absolute")
@@ -573,6 +593,99 @@ class MainWindow(QMainWindow):
             p.seek(0, "absolute")
         elif action == "info":
             self.tool_info()
+        elif action == "view_cycle":
+            order = [k for k, _, _ in VIEW_MODES]
+            self.set_view(mode=order[(order.index(self.view.mode) + 1) % len(order)], announce=True)
+        elif action in ("zoom_in", "zoom_out"):
+            step = VIEW_ZOOM_STEP if action == "zoom_in" else -VIEW_ZOOM_STEP
+            z = max(-VIEW_ZOOM_LIMIT, min(VIEW_ZOOM_LIMIT, self.view.zoom + step))
+            self.set_view(zoom=0.0 if abs(z) < 1e-6 else z, announce=True)
+        elif action == "view_reset":
+            self.view = View()
+            self._view_changed()
+            p.osd("Normal view")
+        elif action == "rotate":
+            self.set_view(rotate=(self.view.rotate + 90) % 360, announce=True)
+        elif action == "bars":
+            self.toggle_bars()
+
+    # ---- picture / view ------------------------------------------------------
+    def _views(self):
+        try:
+            return json.loads(settings().value("views", "") or "{}")
+        except ValueError:
+            return {}
+
+    def set_view(self, announce=False, **changes):
+        for k, v in changes.items():
+            setattr(self.view, k, v)
+        self._view_changed()
+        if announce:
+            self.player.osd("Picture: " + self.view.label())
+
+    def _view_changed(self, save=True):
+        """Push the view to mpv, refresh the button and menu, remember it for this file."""
+        self.view.apply(self.player)
+        self.view_btn.setText(self.view.label() + " ")
+        self._rebuild_view_menu()
+        if save and self.path:
+            views = self._views()
+            if self.view.is_default():
+                views.pop(self.path, None)
+            else:
+                views[self.path] = self.view.to_dict()
+            while len(views) > 300:
+                views.pop(next(iter(views)))
+            settings().setValue("views", json.dumps(views))
+
+    def _rebuild_view_menu(self):
+        m = self.view_menu
+        m.clear()
+        for key, name, tip in VIEW_MODES:
+            a = m.addAction(name, lambda k=key: self.set_view(mode=k, announce=True))
+            a.setCheckable(True)
+            a.setChecked(self.view.mode == key)
+            a.setToolTip(tip)
+            a.setStatusTip(tip)
+        m.setToolTipsVisible(True)
+        m.addSeparator()
+        m.addAction("Zoom in\t+", lambda: self.do("zoom_in"))
+        m.addAction("Zoom out\t−", lambda: self.do("zoom_out"))
+        shape = m.addMenu("Shape")
+        for key, name, _ in VIEW_SHAPES:
+            a = shape.addAction(name, lambda k=key: self.set_view(shape=k, announce=True))
+            a.setCheckable(True)
+            a.setChecked(self.view.shape == key)
+        bars = m.addAction("Remove black bars\tB", self.toggle_bars)
+        bars.setCheckable(True)
+        bars.setChecked(bool(self.view.crop))
+        bars.setToolTip("Crops off black bars that are part of the picture itself, as in many old DVD rips")
+        m.addAction("Rotate 90°\tR", lambda: self.do("rotate"))
+        m.addSeparator()
+        reset = m.addAction("Normal view\t0", lambda: self.do("view_reset"))
+        reset.setEnabled(not self.view.is_default())
+
+    def toggle_bars(self):
+        if self.view.crop:
+            self.set_view(crop=None)
+            self.player.osd("Black bars back")
+            return
+        info = self._need_info()
+        v = info.video if info else None
+        if not v:
+            return
+        self.player.osd("Looking for black bars…", 5000)
+        self._bars = _BarsFinder(info.path, info.duration, v.width, v.height)
+        self._bars.done.connect(self._bars_found)
+        self._bars.start()
+
+    def _bars_found(self, crop):
+        if crop:
+            self.set_view(crop=crop)
+            w, h = crop[0], crop[1]
+            self.player.osd(f"Black bars removed ({w}×{h} picture)")
+        else:
+            self.player.osd("No black bars in the picture itself")
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
@@ -738,6 +851,18 @@ class MainWindow(QMainWindow):
         settings().setValue("geometry", self.saveGeometry())
         self.player.shutdown()
         super().closeEvent(e)
+
+
+class _BarsFinder(QThread):
+    """Black-bar detection runs ffmpeg a few times; keep it off the UI thread."""
+    done = Signal(object)
+
+    def __init__(self, path, duration, width, height):
+        super().__init__()
+        self.args = (path, duration, width, height)
+
+    def run(self):
+        self.done.emit(detect_bars(*self.args))
 
 
 def window_picture(w, out_path, done):

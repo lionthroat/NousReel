@@ -21,6 +21,7 @@ OBSERVED = ["time-pos", "duration", "pause", "estimated-frame-number", "estimate
 # whether the video surface or the Qt window has focus
 FORWARD = ["SPACE", "LEFT", "RIGHT", "Shift+LEFT", "Shift+RIGHT", "UP", "DOWN", "j", "k", "l",
            ",", ".", "f", "ESC", "m", "g", "s", "a", "v", "[", "]", "BS", "HOME", "i",
+           "w", "+", "=", "-", "0", "r", "b",
            "MBTN_LEFT_DBL", "WHEEL_UP", "WHEEL_DOWN", "MOUSE_MOVE", "MBTN_RIGHT"]
 
 

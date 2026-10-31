@@ -69,6 +69,7 @@ jobs:
           .venv\Scripts\python.exe tests\test_ffcmd.py; if ($LASTEXITCODE) { throw "test_ffcmd failed" }
           .venv\Scripts\python.exe tests\test_quick.py; if ($LASTEXITCODE) { throw "test_quick failed" }
           .venv\Scripts\python.exe tests\smoke_gui.py --sample; if ($LASTEXITCODE) { throw "smoke_gui failed" }
+          .venv\Scripts\python.exe tests\test_view.py; if ($LASTEXITCODE) { throw "test_view failed" }
           .venv\Scripts\python.exe tests\test_damage.py "tests\out\sample\Sample Film 1999.cd1.mkv"; if ($LASTEXITCODE) { throw "test_damage failed" }
         env:
           PYTHONIOENCODING: utf-8
@@ -145,6 +146,7 @@ jobs:
           set -e
           .venv/bin/python tests/test_ffcmd.py
           xvfb-run -a -s "-screen 0 1600x1000x24" .venv/bin/python tests/smoke_gui.py --sample
+          xvfb-run -a -s "-screen 0 1600x1000x24" .venv/bin/python tests/test_view.py
           .venv/bin/python tests/test_damage.py "tests/out/sample/Sample Film 1999.cd1.mkv"
         env:
           PYTHONIOENCODING: utf-8

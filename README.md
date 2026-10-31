@@ -28,6 +28,15 @@ explained rather than attempted. On Windows 11 the entry is under *Show more
 options*, or hold **Shift** while right-clicking to go straight to it. It's
 added for your user account only and is removed when you untick it.
 
+**Fit the picture to the window.** The picture button on the bar (or *View ▸
+Picture*, or `W`) switches between **Fit** (the whole picture, with bars),
+**Fill** (zoomed to fill the window, edges cropped) and **Stretch**. Also:
+zoom in and out (`+` `−`), a **Shape** override for files flagged with the
+wrong shape (4:3, 16:9, 1.85:1, 2.39:1), **Remove black bars** (`B`) for bars
+baked into the picture itself, as in many old DVD rips, and **Rotate** (`R`)
+for sideways phone videos. `0` goes back to normal. Each file remembers its own
+view.
+
 **Step through frames.** `,` and `.` move one frame back or forward. The time
 display shows the exact frame number.
 
@@ -78,6 +87,9 @@ never leaves a half-file behind.
 | S / A / V | Next subtitle / next sound track / subtitles on-off |
 | [ ] Backspace | Slower / faster / normal speed |
 | I | What's inside this file |
+| W | Picture: Fit / Fill / Stretch |
+| + − / 0 | Zoom in / out / normal view |
+| B / R | Remove black bars / rotate 90° |
 
 ## Download
 
