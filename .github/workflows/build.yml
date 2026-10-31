@@ -1,0 +1,250 @@
+# Builds Nous Reel for Windows (installer, with mpv and ffmpeg inside) and
+# Linux (.deb for Mint/Ubuntu/Debian; mpv and ffmpeg come from apt).
+#
+# Runs when you push a version tag, or when you press "Run workflow" on the
+# repo's Actions tab.
+#
+#   1. put the new version in the VERSION file (e.g. 0.2.0) and commit
+#   2. git tag v0.2.0 && git push && git push --tags
+#
+# A tag run also publishes a GitHub Release with NousReel-Setup.exe and
+# NousReel-linux-amd64.deb. "Run workflow" only builds (files under Artifacts).
+#
+# The tests make their own little two-part test film (tests/smoke_gui.py --sample),
+# so no real movies are needed here.
+
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  # Pinned downloads for the Windows build, checked against these hashes
+  FFMPEG_URL: https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-full_build-shared.zip
+  FFMPEG_SHA256: 8d31e162f1616e37aab3fa2db991b97e1b8dbeb1c8465fd81a81be16ff91b328
+  MPV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261014/mpv-x86_64-20261014-git-ec38361c56.7z
+  MPV_SHA256: ab6236a2b78a3e9e93a156c1f638d3182ee906006d019c15d1b7b056a7c9a4c5
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+          choco install innosetup -y --no-progress
+
+      - name: Fetch mpv and ffmpeg
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force helpers | Out-Null
+          Invoke-WebRequest $env:FFMPEG_URL -OutFile helpers\ffmpeg.zip
+          Invoke-WebRequest $env:MPV_URL -OutFile helpers\mpv.7z
+          if ((Get-FileHash helpers\ffmpeg.zip -Algorithm SHA256).Hash -ne $env:FFMPEG_SHA256) { throw "ffmpeg download doesn't match its hash" }
+          if ((Get-FileHash helpers\mpv.7z -Algorithm SHA256).Hash -ne $env:MPV_SHA256) { throw "mpv download doesn't match its hash" }
+          Expand-Archive helpers\ffmpeg.zip helpers\ffmpeg
+          7z x helpers\mpv.7z -ohelpers\mpv -y | Out-Null
+          $ff = (Get-ChildItem helpers\ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+          $mpv = (Get-ChildItem helpers\mpv -Recurse -Filter mpv.exe | Select-Object -First 1).DirectoryName
+          "NOUSREEL_FFMPEG_DIR=$ff" >> $env:GITHUB_ENV
+          "NOUSREEL_MPV_DIR=$mpv" >> $env:GITHUB_ENV
+          "NOUSREEL_FFMPEG=$ff\ffmpeg.exe" >> $env:GITHUB_ENV
+          "NOUSREEL_FFPROBE=$ff\ffprobe.exe" >> $env:GITHUB_ENV
+          "NOUSREEL_MPV=$mpv\mpv.exe" >> $env:GITHUB_ENV
+          & "$ff\ffmpeg.exe" -hide_banner -version | Select-Object -First 1
+          & "$mpv\mpv.exe" --version | Select-Object -First 1
+
+      - name: Test
+        run: |
+          $ErrorActionPreference = "Stop"
+          .venv\Scripts\python.exe tests\test_ffcmd.py; if ($LASTEXITCODE) { throw "test_ffcmd failed" }
+          .venv\Scripts\python.exe tests\test_quick.py; if ($LASTEXITCODE) { throw "test_quick failed" }
+          .venv\Scripts\python.exe tests\smoke_gui.py --sample; if ($LASTEXITCODE) { throw "smoke_gui failed" }
+          .venv\Scripts\python.exe tests\test_damage.py "tests\out\sample\Sample Film 1999.cd1.mkv"; if ($LASTEXITCODE) { throw "test_damage failed" }
+        env:
+          PYTHONIOENCODING: utf-8
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-windows
+          path: tests/out/*.png
+          retention-days: 7
+
+      - name: Build app + installer
+        run: powershell -ExecutionPolicy Bypass -File build.ps1
+
+      - name: Check the installer (install, play, convert, uninstall)
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path installer-output\NousReel-Setup.exe)) { throw "no installer was built" }
+          $app = "$env:LOCALAPPDATA\Programs\Nous Reel"
+          Start-Process installer-output\NousReel-Setup.exe -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=desktopicon,plexmenu"
+          foreach ($p in "$app\NousReel.exe", "$app\bin\mpv.exe", "$app\bin\ffmpeg.exe", "$app\bin\ffprobe.exe",
+                         "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Nous Reel.lnk",
+                         "$env:USERPROFILE\Desktop\Nous Reel.lnk") {
+            if (-not (Test-Path $p)) { throw "missing after install: $p" }
+          }
+          $owp = Get-ItemProperty "HKCU:\Software\Classes\.mkv\OpenWithProgids"
+          if (-not ($owp.PSObject.Properties.Name -contains "NousReel.Video")) { throw "not in Open with for .mkv" }
+          if (-not (Get-ItemProperty "HKCU:\Software\RegisteredApplications")."Nous Reel") { throw "not in Default apps" }
+          $rc = (Get-ItemProperty "HKCU:\Software\Classes\SystemFileAssociations\.mp4\shell\NousReel.Plex720\command")."(default)"
+          if ($rc -ne "`"$app\NousReel.exe`" --plex720 `"%1`"") { throw "right-click entry wrong or missing: $rc" }
+          $ver = (Get-Item "$app\NousReel.exe").VersionInfo
+          Write-Host "Installed: $($ver.FileDescription) $($ver.FileVersion), $([math]::Round((Get-ChildItem $app -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)) MB"
+
+          powershell -ExecutionPolicy Bypass -File tests\test_frozen.ps1 -App $app -Video "$PWD\tests\out\sample\Sample Film 1999.cd1.mkv"
+          if ($LASTEXITCODE) { throw "installed app checks failed" }
+
+          Start-Process "$app\unins000.exe" -Wait -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          for ($i = 0; $i -lt 30 -and (Test-Path "$app\NousReel.exe"); $i++) { Start-Sleep 1 }
+          foreach ($p in "$app\NousReel.exe", "$env:USERPROFILE\Desktop\Nous Reel.lnk",
+                         "HKCU:\Software\Classes\NousReel.Video", "HKCU:\Software\Nous Reel",
+                         "HKCU:\Software\Classes\SystemFileAssociations\.mp4\shell\NousReel.Plex720") {
+            if (Test-Path $p) { throw "left behind after uninstall: $p" }
+          }
+          Write-Host "Install, play, convert and uninstall all OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NousReel-windows
+          path: installer-output/NousReel-Setup.exe
+          retention-days: 30
+
+  linux:
+    # Built on an older Ubuntu so the package runs on Linux Mint 21+ / Ubuntu 22.04+
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mpv ffmpeg libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
+            libxkbcommon-x11-0 libegl1 libgl1 xvfb xdotool desktop-file-utils fonts-dejavu-core
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          mpv --version | head -1; ffmpeg -hide_banner -version | head -1
+
+      - name: Test
+        run: |
+          set -e
+          .venv/bin/python tests/test_ffcmd.py
+          xvfb-run -a -s "-screen 0 1600x1000x24" .venv/bin/python tests/smoke_gui.py --sample
+          .venv/bin/python tests/test_damage.py "tests/out/sample/Sample Film 1999.cd1.mkv"
+        env:
+          PYTHONIOENCODING: utf-8
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-linux
+          path: tests/out/*.png
+          retention-days: 7
+
+      - name: Build .deb
+        run: |
+          bash build_linux.sh
+          mv nous-reel_*_amd64.deb NousReel-linux-amd64.deb
+
+      - name: Check the .deb (install, play, uninstall)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq ./NousReel-linux-amd64.deb
+          dpkg -s nous-reel | grep -E "^(Version|Installed-Size|Depends):"
+          test -x /usr/bin/nous-reel
+          desktop-file-validate /usr/share/applications/nous-reel.desktop
+          test -f /usr/share/icons/hicolor/256x256/apps/nous-reel.png
+          xvfb-run -a bash tests/linux_launch_check.sh "$PWD/tests/out/sample/Sample Film 1999.cd1.mkv"
+          sudo apt-get remove -y -qq nous-reel
+          test ! -e /usr/bin/nous-reel && test ! -e /opt/nous-reel
+          echo "Install, play and uninstall all OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NousReel-linux
+          path: NousReel-linux-amd64.deb
+          retention-days: 30
+
+  linux-clean:
+    # Installs the .deb on bare Linux Mint / LMDE systems: apt must pull in mpv,
+    # ffmpeg and every system library the app uses
+    needs: linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [mint21.3-amd64, mint22.3-amd64, lmde7-amd64]
+    container: linuxmintd/${{ matrix.image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: NousReel-linux
+
+      - name: Install, play, uninstall
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq ./NousReel-linux-amd64.deb xvfb xauth xdotool procps fonts-dejavu-core > /dev/null
+          dpkg -s nous-reel | grep -E "^(Version|Installed-Size):"
+          missing=$(find /opt/nous-reel -type f \( -name "*.so*" -o -name NousReel \) -print0 |
+            xargs -0 ldd 2>/dev/null | awk '/:$/ { f = $0 } /not found/ { print f, $0 }' || true)
+          [ -z "$missing" ] || { echo "$missing"; exit 1; }
+          ffmpeg -nostdin -v error -f lavfi -i testsrc2=s=1280x720:d=15 -f lavfi -i sine=d=15 \
+            -c:v libx264 -preset veryfast -c:a aac /tmp/Sample.mkv
+          xvfb-run -a bash tests/linux_launch_check.sh /tmp/Sample.mkv
+          apt-get remove -y -qq nous-reel > /dev/null
+          test ! -e /opt/nous-reel
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux, linux-clean]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches VERSION file
+        run: |
+          want="$(tr -d '[:space:]' < VERSION)"
+          if [ "${GITHUB_REF_NAME#v}" != "$want" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match VERSION ($want)"; exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: NousReel-*
+          path: release-files
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Nous Reel ${{ github.ref_name }}
+          files: release-files/*
+          body: |
+            **Windows:** download `NousReel-Setup.exe` and open it. mpv and ffmpeg are included.
+            **Linux (Mint, Ubuntu, Debian):** download `NousReel-linux-amd64.deb` and double-click it, or `sudo apt install ./NousReel-linux-amd64.deb` (it pulls in mpv and ffmpeg).
+
+            Step-by-step instructions (including the one-time security warning on Windows): https://nousreel.lionthroat.com

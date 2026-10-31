@@ -206,10 +206,10 @@ class JobRow(QWidget):
     def _reveal(self):
         import subprocess
         target = self.job.out if os.path.exists(self.job.out) else os.path.dirname(self.job.out)
-        if os.path.isfile(target):
+        if os.path.isfile(target) and os.name == "nt":
             subprocess.Popen(["explorer", "/select,", os.path.normpath(target)])
         else:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(target))
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target if os.path.isdir(target) else os.path.dirname(target)))
 
     def refresh(self):
         j = self.job

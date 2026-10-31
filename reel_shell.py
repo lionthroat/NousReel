@@ -9,7 +9,8 @@ VIDEO_EXTS = [".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".
               ".vob", ".flv"]
 VERB = "NousReel.Plex720"
 LABEL = "720p for Plex (Nous Reel)"
-BASE = r"Software\Classes\SystemFileAssociations"
+# tests point this somewhere harmless
+BASE = os.environ.get("NOUSREEL_SHELL_BASE", r"Software\Classes\SystemFileAssociations")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

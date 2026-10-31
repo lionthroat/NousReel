@@ -101,7 +101,8 @@ class DamageCheck(QObject):
         self._err += bytes(self.proc.readAllStandardError())
         *lines, self._err = self._err.split(b"\n")
         for raw in lines:
-            if b"] demuxer -> " in raw:
+            # "[vist#0:0/h264 @ …] demuxer -> …" on ffmpeg 7+, a bare "demuxer -> …" on 4.x
+            if b"] demuxer -> " in raw or raw.lstrip().startswith(b"demuxer -> ") or b"] [info] demuxer -> " in raw:
                 m = _PTS.search(raw.decode("ascii", "replace"))
                 if not m or m.group(1).startswith("N"):
                     m = _DTS.search(raw.decode("ascii", "replace"))

@@ -2,11 +2,12 @@
 deep fry, glitches, crooked crops) the way memes look after a hundred reposts."""
 import os
 import random
+import shutil
 import subprocess
 
 import numpy as np
 from PySide6.QtCore import QBuffer, QIODevice, QPointF, QRectF, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QGuiApplication, QImage, QPainter,
+from PySide6.QtGui import (QColor, QFont, QFontInfo, QFontMetricsF, QGuiApplication, QImage, QPainter,
                            QPainterPath, QPen, QPixmap, QTransform)
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QGroupBox,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
@@ -102,7 +103,12 @@ def draw_captions(img, p):
     qp = QPainter(out)
     qp.setRenderHint(QPainter.Antialiasing)
     px = max(12, int(h * 0.11 * p.get("size", 50) / 50))
-    font = QFont("Impact")
+    font = QFont()
+    # Impact where it exists (Windows, Mac); the closest heavy narrow face elsewhere
+    font.setFamilies(["Impact", "Anton", "Oswald", "League Gothic", "Liberation Sans Narrow",
+                      "DejaVu Sans Condensed"])
+    if QFontInfo(font).family() != "Impact":
+        font.setBold(True)   # Impact is already heavy; the stand-ins need help
     font.setPixelSize(px)
     # hinting makes outline text drift apart letter by letter on Windows
     font.setHintingPreference(QFont.PreferNoHinting)
@@ -356,7 +362,9 @@ def halo_exe():
     s = QSettings("NousReel", os.environ.get("NOUSREEL_SETTINGS", "NousReel")).value("halo_path", "")
     cands = [s, os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Nous Halo", "NousHalo.exe"),
              os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Nous Halo", "NousHalo.exe"),
-             os.path.expanduser(r"~\NousHalo\dist\NousHalo\NousHalo.exe")]
+             os.path.expanduser(r"~\NousHalo\dist\NousHalo\NousHalo.exe"),
+             shutil.which("nous-halo") or "",                        # the Linux package
+             "/Applications/Nous Halo.app/Contents/MacOS/NousHalo"]
     return next((c for c in cands if c and os.path.isfile(c)), None)
 
 

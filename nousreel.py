@@ -64,22 +64,8 @@ def settings():
 
 
 def app_icon():
-    ico = os.path.join(getattr(sys, "_MEIPASS", HERE), "icon.ico")
-    if os.path.exists(ico):
-        return QIcon(ico)
-    pm = QPixmap(64, 64)
-    pm.fill(Qt.transparent)
-    qp = QPainter(pm)
-    qp.setRenderHint(QPainter.Antialiasing)
-    qp.setBrush(QColor("#5e81ac"))
-    qp.setPen(Qt.NoPen)
-    qp.drawEllipse(4, 4, 56, 56)
-    qp.setBrush(QColor("#2e3440"))
-    for x, y in ((32, 16), (32, 48), (16, 32), (48, 32)):
-        qp.drawEllipse(x - 7, y - 7, 14, 14)
-    qp.drawEllipse(28, 28, 8, 8)
-    qp.end()
-    return QIcon(pm)
+    from reel_icon import reel_icon
+    return reel_icon()
 
 
 def glyph(kind, size=20, color="#e5e9f0"):
@@ -812,6 +798,15 @@ def apply_theme(app):
 
 
 def main():
+    if sys.platform.startswith("linux"):
+        # mpv draws into the window by its X11 id; Wayland has no such thing, so use XWayland
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+    if os.name == "nt" and ("--add-right-click" in sys.argv or "--remove-right-click" in sys.argv):
+        # the installer and uninstaller call these
+        import reel_shell
+        app = QApplication(sys.argv[:1])
+        (reel_shell.install if "--add-right-click" in sys.argv else reel_shell.uninstall)()
+        return 0
     app = QApplication(sys.argv)
     app.setApplicationName(APP)
     app.setOrganizationName("NousReel")

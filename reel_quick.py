@@ -139,7 +139,9 @@ class QuickWindow(QWidget):
             QApplication.instance().exit(0 if not failed else 2)
 
     def _play(self, path):
-        os.startfile(path)
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def closeEvent(self, e):
         if self.queue.busy():

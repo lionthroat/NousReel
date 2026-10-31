@@ -365,6 +365,34 @@ def display_command(args, out="output.mkv"):
     return "ffmpeg " + " ".join(q(a) for a in args) + " " + q(out)
 
 
+_encoders = None
+
+
+def codec_available(key):
+    """Whether this machine's ffmpeg has the encoder behind a codec choice
+    (Ubuntu 22.04's has no AV1, for one; graphics-card encoders need the card too)."""
+    global _encoders
+    enc = VIDEO_CODECS[key][1]
+    if enc is None:
+        return True
+    if _encoders is None:
+        _encoders = set()
+        exe = find("ffmpeg")
+        if exe:
+            try:
+                r = subprocess.run([exe, "-hide_banner", "-encoders"], capture_output=True, timeout=15,
+                                   creationflags=no_window())
+                for line in r.stdout.decode("ascii", "replace").splitlines():
+                    bits = line.split()
+                    if len(bits) >= 2 and bits[0].startswith("V"):
+                        _encoders.add(bits[1])
+            except (OSError, subprocess.SubprocessError):
+                pass
+    if enc not in _encoders:
+        return False
+    return nvenc_available() if "nvenc" in enc else True
+
+
 _nvenc = None
 
 

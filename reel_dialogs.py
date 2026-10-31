@@ -449,7 +449,7 @@ class ShrinkDialog(QDialog):
         self.setWindowTitle("Shrink")
         self.resize(1320, 820)
         self.choices = F.default_choices(info)
-        self.nvenc = F.nvenc_available()
+        # (nvenc is checked inside codec_available)
         self.est = None
         self._loading = False
         lay = QVBoxLayout(self)
@@ -459,7 +459,7 @@ class ShrinkDialog(QDialog):
         top.addWidget(QLabel("Recipe"))
         self.preset = QComboBox()
         for name, _, s in F.PRESETS:
-            if s.get("codec", "").startswith("nvenc") and not self.nvenc:
+            if not F.codec_available(s.get("codec", "x265")):
                 continue
             self.preset.addItem(name, name)
         self.preset.addItem("Custom (my own dial settings)", "custom")
@@ -479,7 +479,7 @@ class ShrinkDialog(QDialog):
         self.explain = {}
         codec = QComboBox()
         for key, (label, enc, _, _) in F.VIDEO_CODECS.items():
-            if key.startswith("nvenc") and not self.nvenc:
+            if not F.codec_available(key):
                 continue
             codec.addItem(label, key)
         self._dial("codec", "Codec", codec)

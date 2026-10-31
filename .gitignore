@@ -1,6 +1,9 @@
 .venv/
 build/
 dist/
+installer-output/
 __pycache__/
 tests/out/
 *.partial
+.wrangler/
+site/.wrangler/

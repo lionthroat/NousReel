@@ -49,7 +49,10 @@ class MpvWidget(QWidget):
         self.setAutoFillBackground(True)
         self.setMinimumSize(320, 180)
         self.props = {}
-        self._pipe = "nousreel-" + uuid.uuid4().hex[:10]
+        name = "nousreel-" + uuid.uuid4().hex[:10]
+        # a named pipe on Windows, a socket file elsewhere; QLocalSocket takes either
+        self._pipe = name if os.name == "nt" else os.path.join(tempfile.gettempdir(), name)
+        self._ipc_arg = f"\\\\.\\pipe\\{name}" if os.name == "nt" else self._pipe
         self._sock = QLocalSocket(self)
         self._sock.readyRead.connect(self._read)
         self._sock.connected.connect(self._on_connected)
@@ -64,15 +67,18 @@ class MpvWidget(QWidget):
     def start(self):
         exe = find("mpv")
         if not exe:
-            self.failed.emit("mpv isn't installed. Install it with:  winget install shinchiro.mpv")
+            how = "winget install shinchiro.mpv" if os.name == "nt" else "sudo apt install mpv"
+            self.failed.emit(f"mpv isn't installed. Install it with:  {how}")
             return
         self._proc = QProcess(self)
-        args = [f"--wid={int(self.winId())}", f"--input-ipc-server=\\\\.\\pipe\\{self._pipe}",
+        # Only options that older mpv (0.34, Ubuntu 22.04 / Mint 21) also knows:
+        # an unknown option makes mpv refuse to start
+        args = [f"--wid={int(self.winId())}", f"--input-ipc-server={self._ipc_arg}",
                 "--idle=yes", "--force-window=yes", "--keep-open=yes", "--no-config",
                 "--osc=no", "--osd-level=1", "--input-default-bindings=no", "--input-vo-keyboard=yes",
                 f"--input-conf={_input_conf()}", "--input-cursor=yes", "--cursor-autohide=1200",
                 "--cursor-autohide-fs-only=yes", "--hr-seek=yes", "--hwdec=auto-safe",
-                "--background-color=#000000", "--sub-auto=fuzzy", "--audio-file-auto=no",
+                "--sub-auto=fuzzy", "--audio-file-auto=no",
                 "--screenshot-format=png", "--screenshot-high-bit-depth=no",
                 "--osd-font-size=28", "--msg-level=all=warn"]
         self._proc.setProgram(exe)

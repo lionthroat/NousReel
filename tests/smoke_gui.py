@@ -30,7 +30,36 @@ import reel_meme
 nousreel.pictures_dir = lambda: OUT
 reel_meme.halo_exe = lambda: None
 
-video = sys.argv[1]
+def make_sample():
+    """A two-part test film (picture, sound, subtitles) for machines with no videos, like CI."""
+    import subprocess
+    from reel_tools_path import find
+    d = os.path.join(OUT, "sample")
+    os.makedirs(d, exist_ok=True)
+    srt = os.path.join(d, "subs.srt")
+    with open(srt, "w", encoding="utf-8") as f:
+        for i in range(10):
+            f.write(f"{i + 1}\n00:00:{i * 2:02d},000 --> 00:00:{i * 2 + 1:02d},500\nLine {i + 1}, quick as you like.\n\n")
+    parts = []
+    for n in (1, 2):
+        p = os.path.join(d, f"Sample Film 1999.cd{n}.mkv")
+        if not os.path.exists(p):
+            subprocess.run([find("ffmpeg"), "-nostdin", "-v", "error", "-y",
+                            "-f", "lavfi", "-i", f"testsrc2=s=1280x720:r=24000/1001:d=20",
+                            "-f", "lavfi", "-i", f"sine=f={330 * n}:d=20", "-i", srt,
+                            "-map", "0", "-map", "1", "-map", "2", "-c:v", "libx264", "-preset", "veryfast",
+                            "-c:a", "aac", "-c:s", "srt", "-metadata:s:s:0", "language=eng", p],
+                           check=True, stdin=subprocess.DEVNULL)
+        parts.append(p)
+    return parts[0]
+
+
+if sys.argv[1] == "--sample":
+    video = make_sample()
+    if len(sys.argv) < 3:
+        sys.argv.append("join")
+else:
+    video = sys.argv[1]
 app = QApplication(sys.argv)
 nousreel.apply_theme(app)
 w = nousreel.MainWindow()
