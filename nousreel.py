@@ -337,6 +337,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Quit", self.close, QKeySequence.Quit)
         t = mb.addMenu("&Tools")
         self._act(t, "What's inside this file…", lambda: self.do("info"))
+        self._act(t, "Check this file for damage…", self.tool_damage)
         t.addSeparator()
         self._act(t, "Tracks && subtitles…", self.tool_remux)
         self._act(t, "Shrink…", self.tool_shrink)
@@ -677,6 +678,23 @@ class MainWindow(QMainWindow):
         info = self._need_info()
         if info:
             InfoDialog(info, self).exec()
+
+    def tool_damage(self):
+        info = self._need_info()
+        if not info:
+            return
+        from reel_damage import DamageDialog
+        d = DamageDialog(info, lambda t, p=info.path: self.jump_to(p, t), self)
+        d.setAttribute(Qt.WA_DeleteOnClose)
+        d.show()          # not modal: keep watching while it checks
+
+    def jump_to(self, path, t):
+        if os.path.normcase(path) != os.path.normcase(self.path or ""):
+            self.open_path(path)
+            QTimer.singleShot(1500, lambda: self.player.seek(t, "absolute+exact"))
+        else:
+            self.player.seek(t, "absolute+exact")
+        self.player.set("pause", False)
 
     def tool_remux(self):
         info = self._need_info()

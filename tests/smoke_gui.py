@@ -41,6 +41,13 @@ results = []
 
 def shot(name, widget=None):
     widget = widget or w
+    if widget is not w:
+        # dialogs render on their own, so nothing else on screen can end up in the picture
+        widget.grab().save(os.path.join(OUT, name + ".png"))
+        return
+    # mpv draws the video outside Qt, so the main window needs a screen grab; bring it to the front first
+    w.raise_()
+    w.activateWindow()
     QApplication.processEvents()
     scr = widget.screen()
     g = widget.frameGeometry()

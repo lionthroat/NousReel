@@ -43,6 +43,10 @@ the meme maker:
 `G` saves a clean frame to `Pictures\Nous Reel`.
 
 **Tools menu**
+- **Check this file for damage**: decodes every frame of the picture and
+  sound (an 84-minute film takes a couple of minutes) and lists each trouble
+  spot with its timestamp and a Jump button. Good for checking a rip from a
+  thrifted disc, a download, or a file that ends early.
 - **What's inside this file**: the container, every track in plain English,
   and a bar showing where the bytes go (why is this file 23 GB?)
 - **Tracks & subtitles**: keep or drop tracks, fix language labels, pick the
@@ -95,6 +99,8 @@ from `NOUSREEL_MPV` / `NOUSREEL_FFMPEG` / `NOUSREEL_FFPROBE`.
 ```
 .venv\Scripts\python.exe tests\test_ffcmd.py
 .venv\Scripts\python.exe tests\test_quick.py
+.venv\Scripts\python.exe tests\test_damage.py "<a video>"
+.venvScriptspython.exe tests	est_damage.py "<a video>"
 .venv\Scripts\python.exe tests\smoke_gui.py "<a video>" ["join"]
 .venv\Scripts\python.exe tests\full_runs.py join "<part 1>" "<part 2>"
 ```
@@ -114,5 +120,6 @@ settings profile and writes nothing next to the video or into Pictures.
 | `reel_jobs.py` | Job queue with progress, and the Jobs panel |
 | `reel_dialogs.py` | What's inside, Tracks & subtitles, Shrink, Join |
 | `reel_meme.py` | Meme maker and the ruin filters |
+| `reel_damage.py` | Check this file for damage |
 | `reel_quick.py` | One-step 720p for Plex window and its single queue |
 | `reel_shell.py` | The Explorer right-click entry (per user) |
